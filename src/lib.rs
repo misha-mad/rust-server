@@ -123,3 +123,92 @@ impl Worker {
         Worker { id, thread: Some(thread) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn test_execute_jobs() {
+        let pool = ThreadPool::new(4);
+        let (sender, receiver) = mpsc::channel();
+
+        // Execute a job that sends a message to the channel
+        pool.execute(move || {
+            sender.send("Job 1 executed").unwrap();
+        });
+
+        // Check that the job was executed
+        let message = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(message, "Job 1 executed");
+    }
+
+    #[test]
+    fn test_pool_drops() {
+        let (sender, receiver) = mpsc::channel();
+        let pool = Arc::new(ThreadPool::new(4));
+        let pool_clone = pool.clone();
+
+        // Execute a job that sends a message to the channel
+        pool_clone.execute(move || {
+            sender.send("Job executed before drop").unwrap();
+        });
+
+        // Drop the pool
+        drop(pool);
+
+        // Check that the job was executed before the pool was dropped
+        let message = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(message, "Job executed before drop");
+    }
+
+    #[test]
+    fn test_delayed_job() {
+        let pool = ThreadPool::new(4);
+        let (sender, receiver) = mpsc::channel();
+
+        // Execute a job that has a delay
+        pool.execute(move || {
+            thread::sleep(Duration::from_secs(2));
+            sender.send("Delayed job executed").unwrap();
+        });
+
+        // Check that the job was executed after delay
+        let message = receiver.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert_eq!(message, "Delayed job executed");
+    }
+
+    #[test]
+    fn test_worker_shutdown() {
+        // Create a pool with one worker for testing
+        let pool = ThreadPool::new(1);
+        let (sender, receiver) = mpsc::channel();
+
+        // Execute a job
+        pool.execute(move || {
+            sender.send("Job before shutdown").unwrap();
+        });
+
+        // Check that the job was executed
+        let message = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(message, "Job before shutdown");
+
+        // Drop the pool and ensure all workers are shut down
+        drop(pool);
+
+        // Create a new channel and verify that the sender is no longer usable
+        let (second_sender, _) = mpsc::channel();
+        let result = second_sender.send("Job after shutdown");
+        println!("{:?}", result);
+        assert!(result.is_err(), "Expected error sending to a closed channel");
+
+        // Create a new channel and try sending a message
+        let (third_sender, _new_receiver) = mpsc::channel();
+        let result = third_sender.send("Job after shutdown");
+        println!("{:?}", result);
+        assert!(result.is_ok(), "Expected successful send to a new channel");
+    }
+}
+
