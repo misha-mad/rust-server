@@ -1,15 +1,14 @@
-use std::{
-    fs,
-    io::{prelude::*, BufReader},
-    net::{TcpListener, TcpStream},
-};
+use std::{fs, io::{prelude::*, BufReader}, net::{TcpListener, TcpStream}, thread};
+use std::time::Duration;
+use rust_server::ThreadPool;
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+    let pool = ThreadPool::new(4);
 
     for stream in listener.incoming() {
         let stream = stream.unwrap();
-        handle_connection(stream);
+        pool.execute(|| { handle_connection(stream); });
     }
 }
 
@@ -17,11 +16,15 @@ fn main() {
 fn handle_connection(mut stream: TcpStream) {
     let buf_reader = BufReader::new(&mut stream);
     let request_line = buf_reader.lines().next().unwrap().unwrap();
+    println!("{}", request_line);
 
-    let (status_line, filename) = if request_line == "GET / HTTP/1.1" {
-        ("HTTP/1.1 200 OK", "index.html")
-    } else {
-        ("HTTP/1.1 404 NOT FOUND", "404.html")
+    let (status_line, filename) = match &request_line[..] {
+        "GET / HTTP/1.1" => ("HTTP/1.1 200 OK", "index.html"),
+        "GET /sleep HTTP/1.1" => {
+            thread::sleep(Duration::from_secs(5));
+            ("HTTP/1.1 200 OK", "index.html")
+        }
+        _ => ("HTTP/1.1 404 NOT FOUND", "404.html"),
     };
 
     let contents = fs::read_to_string(filename).unwrap();
