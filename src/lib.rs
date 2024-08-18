@@ -71,7 +71,9 @@ impl ThreadPool {
         F: FnOnce() + Send + 'static,
     {
         let job = Box::new(f);
-        self.sender.as_ref().expect("Sender is missing").send(job).unwrap();
+        if let Err(e) = self.sender.as_ref().expect("Sender is missing").send(job) {
+            eprintln!("Failed to send job to thread pool: {}", e);
+        }
     }
 }
 
@@ -89,7 +91,9 @@ impl Drop for ThreadPool {
             println!("Shutting down worker {}", worker.id);
 
             if let Some(thread) = worker.thread.take() {
-                thread.join().unwrap();
+                if let Err(e) = thread.join() {
+                    eprintln!("Failed to join worker thread: {:?}", e);
+                }
             }
         }
     }
@@ -106,7 +110,7 @@ impl Worker {
     fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
         let thread = thread::spawn(move || loop {
             // Wait for a job and execute it.
-            let message = receiver.lock().unwrap().recv();
+            let message = receiver.lock().expect("Failed to lock mutex").recv();
 
             match message {
                 Ok(job) => {
@@ -137,12 +141,16 @@ mod tests {
 
         // Execute a job that sends a message to the channel
         pool.execute(move || {
-            sender.send("Job 1 executed").unwrap();
+            if let Err(e) = sender.send("Job 1 executed") {
+                eprintln!("Failed to send message: {}", e);
+            }
         });
 
         // Check that the job was executed
-        let message = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert_eq!(message, "Job 1 executed");
+        match receiver.recv_timeout(Duration::from_secs(1)) {
+            Ok(message) => assert_eq!(message, "Job 1 executed"),
+            Err(e) => panic!("Failed to receive message: {}", e),
+        }
     }
 
     #[test]
@@ -153,15 +161,19 @@ mod tests {
 
         // Execute a job that sends a message to the channel
         pool_clone.execute(move || {
-            sender.send("Job executed before drop").unwrap();
+            if let Err(e) = sender.send("Job executed before drop") {
+                eprintln!("Failed to send message: {}", e);
+            }
         });
 
         // Drop the pool
         drop(pool);
 
         // Check that the job was executed before the pool was dropped
-        let message = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert_eq!(message, "Job executed before drop");
+        match receiver.recv_timeout(Duration::from_secs(1)) {
+            Ok(message) => assert_eq!(message, "Job executed before drop"),
+            Err(e) => panic!("Failed to receive message: {}", e),
+        }
     }
 
     #[test]
@@ -172,12 +184,17 @@ mod tests {
         // Execute a job that has a delay
         pool.execute(move || {
             thread::sleep(Duration::from_secs(2));
-            sender.send("Delayed job executed").unwrap();
+
+            if let Err(e) = sender.send("Delayed job executed") {
+                eprintln!("Failed to send message: {}", e);
+            }
         });
 
         // Check that the job was executed after delay
-        let message = receiver.recv_timeout(Duration::from_secs(3)).unwrap();
-        assert_eq!(message, "Delayed job executed");
+        match receiver.recv_timeout(Duration::from_secs(3)) {
+            Ok(message) => assert_eq!(message, "Delayed job executed"),
+            Err(e) => panic!("Failed to receive message: {}", e),
+        }
     }
 
     #[test]
@@ -188,12 +205,16 @@ mod tests {
 
         // Execute a job
         pool.execute(move || {
-            sender.send("Job before shutdown").unwrap();
+            if let Err(e) = sender.send("Job before shutdown") {
+                eprintln!("Failed to send message: {}", e);
+            }
         });
 
         // Check that the job was executed
-        let message = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert_eq!(message, "Job before shutdown");
+        match receiver.recv_timeout(Duration::from_secs(1)) {
+            Ok(message) => assert_eq!(message, "Job before shutdown"),
+            Err(e) => panic!("Failed to receive message: {}", e),
+        }
 
         // Drop the pool and ensure all workers are shut down
         drop(pool);
@@ -201,14 +222,11 @@ mod tests {
         // Create a new channel and verify that the sender is no longer usable
         let (second_sender, _) = mpsc::channel();
         let result = second_sender.send("Job after shutdown");
-        println!("{:?}", result);
-        assert!(result.is_err(), "Expected error sending to a closed channel");
+        assert!(result.is_err(), "Expected error sending message after shutdown");
 
         // Create a new channel and try sending a message
         let (third_sender, _new_receiver) = mpsc::channel();
         let result = third_sender.send("Job after shutdown");
-        println!("{:?}", result);
         assert!(result.is_ok(), "Expected successful send to a new channel");
     }
 }
-
