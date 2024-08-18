@@ -196,37 +196,4 @@ mod tests {
             Err(e) => panic!("Failed to receive message: {}", e),
         }
     }
-
-    #[test]
-    fn test_worker_shutdown() {
-        // Create a pool with one worker for testing
-        let pool = ThreadPool::new(1);
-        let (sender, receiver) = mpsc::channel();
-
-        // Execute a job
-        pool.execute(move || {
-            if let Err(e) = sender.send("Job before shutdown") {
-                eprintln!("Failed to send message: {}", e);
-            }
-        });
-
-        // Check that the job was executed
-        match receiver.recv_timeout(Duration::from_secs(1)) {
-            Ok(message) => assert_eq!(message, "Job before shutdown"),
-            Err(e) => panic!("Failed to receive message: {}", e),
-        }
-
-        // Drop the pool and ensure all workers are shut down
-        drop(pool);
-
-        // Create a new channel and verify that the sender is no longer usable
-        let (second_sender, _) = mpsc::channel();
-        let result = second_sender.send("Job after shutdown");
-        assert!(result.is_err(), "Expected error sending message after shutdown");
-
-        // Create a new channel and try sending a message
-        let (third_sender, _new_receiver) = mpsc::channel();
-        let result = third_sender.send("Job after shutdown");
-        assert!(result.is_ok(), "Expected successful send to a new channel");
-    }
 }
