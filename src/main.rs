@@ -6,6 +6,7 @@ fn main() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
     let pool = ThreadPool::new(4);
 
+    // Listen for incoming connections and handle them in a thread pool.
     for stream in listener.incoming() {
         let stream = stream.unwrap();
         pool.execute(|| { handle_connection(stream); });
@@ -13,10 +14,26 @@ fn main() {
 }
 
 // Handle the connection. This function reads the request line and sends the response.
+// The response is either a 200 OK status line with the contents of the file, or a 404 NOT FOUND status line.
+// If the request is for /sleep, the server will sleep for 5 seconds before sending the response.
+// The response includes the length of the contents in bytes.
+//
+// # Arguments
+//
+// * `stream` - The TCP stream to read from and write to.
+//
+// # Examples
+//
+// ```
+// use rust_server::handle_connection;
+// use std::net::TcpStream;
+// let stream = TcpStream::connect("
+//
+// handle_connection(stream);
+// ```
 fn handle_connection(mut stream: TcpStream) {
     let buf_reader = BufReader::new(&mut stream);
     let request_line = buf_reader.lines().next().unwrap().unwrap();
-    println!("{}", request_line);
 
     let (status_line, filename) = match &request_line[..] {
         "GET / HTTP/1.1" => ("HTTP/1.1 200 OK", "index.html"),
