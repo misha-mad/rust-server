@@ -1,5 +1,6 @@
 use std::{sync::mpsc, thread};
 use std::sync::{Arc, Mutex};
+use std::thread::available_parallelism;
 
 /// A thread pool for executing tasks concurrently.
 ///
@@ -18,6 +19,8 @@ type Job = Box<dyn FnOnce() + Send + 'static>;
 
 impl ThreadPool {
     /// Creates a new `ThreadPool` with the specified number of worker threads.
+    /// If `size` is `None`, the number of worker threads will be equal to the number
+    /// of logical cores on the system.
     ///
     /// # Arguments
     ///
@@ -31,9 +34,11 @@ impl ThreadPool {
     ///
     /// ```
     /// use rust_server::ThreadPool;
-    /// let pool = ThreadPool::new(4);
+    /// let pool = ThreadPool::new(Some(4));
     /// ```
-    pub fn new(size: usize) -> ThreadPool {
+    pub fn new(size: Option<usize>) -> ThreadPool {
+        let size = size.unwrap_or_else(|| available_parallelism().map(|n| n.get()).unwrap_or(1));
+        println!("Creating a thread pool with {} worker threads.", size);
         assert!(size > 0);
         let (sender, receiver) = mpsc::channel();
         let receiver = Arc::new(Mutex::new(receiver));
@@ -60,7 +65,7 @@ impl ThreadPool {
     ///
     /// ```
     /// use rust_server::ThreadPool;
-    /// let pool = ThreadPool::new(4);
+    /// let pool = ThreadPool::new(Some(4));
     ///
     /// pool.execute(|| {
     ///     println!("Executing job in thread pool!");
@@ -136,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_execute_jobs() {
-        let pool = ThreadPool::new(4);
+        let pool = ThreadPool::new(Some(4));
         let (sender, receiver) = mpsc::channel();
 
         // Execute a job that sends a message to the channel
@@ -156,7 +161,7 @@ mod tests {
     #[test]
     fn test_pool_drops() {
         let (sender, receiver) = mpsc::channel();
-        let pool = Arc::new(ThreadPool::new(4));
+        let pool = Arc::new(ThreadPool::new(Some(4)));
         let pool_clone = pool.clone();
 
         // Execute a job that sends a message to the channel
@@ -178,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_delayed_job() {
-        let pool = ThreadPool::new(4);
+        let pool = ThreadPool::new(Some(4));
         let (sender, receiver) = mpsc::channel();
 
         // Execute a job that has a delay
